@@ -1,0 +1,8 @@
+// Application icon (shown in taskbar, explorer, etc.)
+// IDI_ICON1 is typically ID 1
+1 ICON "icon.ico"
+
+// Application manifest
+// 1 = CREATEPROCESS_MANIFEST_RESOURCE_ID
+// 24 = RT_MANIFEST
+1 24 "langlock.manifest"

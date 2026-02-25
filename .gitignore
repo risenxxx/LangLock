@@ -1,0 +1,16 @@
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# Generated icon
+icon.ico
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

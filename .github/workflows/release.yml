@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from Cargo.toml
+        id: check
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Check if tag already exists
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "Tag v$VERSION does not exist, will create release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+  build-and-release:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: windows-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Release
+        run: cargo build --release
+
+      - name: Build Inno Setup Installer
+        run: |
+          # Download and install Inno Setup
+          $innoUrl = "https://jrsoftware.org/download.php/is.exe"
+          $innoInstaller = "$env:TEMP\innosetup.exe"
+          Invoke-WebRequest -Uri $innoUrl -OutFile $innoInstaller
+          Start-Process -FilePath $innoInstaller -Args "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" -Wait
+
+          # Build installer
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc /DMyAppVersion="${{ needs.check-version.outputs.version }}" installer\langlock.iss
+
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-files
+          Copy-Item target/release/langlock.exe release-files/
+          Copy-Item target/installer/*.exe release-files/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: LangLock v${{ needs.check-version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            release-files/langlock.exe
+            release-files/langlock-setup-*.exe
