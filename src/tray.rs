@@ -1,5 +1,6 @@
 //! System tray icon and menu management.
 
+use crate::hook;
 use crate::notification::show_hidden_notification;
 use crate::startup;
 use muda::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
@@ -8,6 +9,7 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 /// Menu item IDs.
 const MENU_STARTUP_ID: &str = "startup";
+const MENU_SHIFT_CAPS_ID: &str = "shift_caps";
 const MENU_HIDE_ID: &str = "hide";
 const MENU_EXIT_ID: &str = "exit";
 
@@ -18,6 +20,7 @@ static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 pub struct TrayManager {
     tray_icon: Option<TrayIcon>,
     startup_item: CheckMenuItem,
+    shift_caps_item: CheckMenuItem,
     hide_item: MenuItem,
     exit_item: MenuItem,
 }
@@ -36,6 +39,13 @@ impl TrayManager {
             startup_enabled,
             None,
         );
+        let shift_caps_item = CheckMenuItem::with_id(
+            MENU_SHIFT_CAPS_ID,
+            "Shift+Caps Lock = regular Caps Lock",
+            true,
+            hook::is_shift_capslock_enabled(),
+            None,
+        );
         let hide_item = MenuItem::with_id(MENU_HIDE_ID, "Hide tray icon", true, None);
         let exit_item = MenuItem::with_id(MENU_EXIT_ID, "Exit", true, None);
 
@@ -43,6 +53,8 @@ impl TrayManager {
         let menu = Menu::new();
         menu.append(&startup_item)
             .map_err(|e| format!("Failed to add startup item: {}", e))?;
+        menu.append(&shift_caps_item)
+            .map_err(|e| format!("Failed to add shift caps item: {}", e))?;
         menu.append(&hide_item)
             .map_err(|e| format!("Failed to add hide item: {}", e))?;
         menu.append(&PredefinedMenuItem::separator())
@@ -62,6 +74,7 @@ impl TrayManager {
         Ok(Self {
             tray_icon: Some(tray_icon),
             startup_item,
+            shift_caps_item,
             hide_item,
             exit_item,
         })
@@ -81,11 +94,14 @@ impl TrayManager {
             // Update startup state before showing
             let startup_enabled = startup::is_startup_enabled();
             self.startup_item.set_checked(startup_enabled);
+            self.shift_caps_item.set_checked(hook::is_shift_capslock_enabled());
 
             // Build the menu with existing items
             let menu = Menu::new();
             menu.append(&self.startup_item)
                 .map_err(|e| format!("Failed to add startup item: {}", e))?;
+            menu.append(&self.shift_caps_item)
+                .map_err(|e| format!("Failed to add shift caps item: {}", e))?;
             menu.append(&self.hide_item)
                 .map_err(|e| format!("Failed to add hide item: {}", e))?;
             menu.append(&PredefinedMenuItem::separator())
@@ -120,6 +136,14 @@ impl TrayManager {
         // Sync checkbox with actual state (in case UAC was cancelled)
         let new_state = startup::is_startup_enabled();
         self.startup_item.set_checked(new_state);
+    }
+
+    /// Toggles the Shift+Caps Lock feature and updates the checkbox.
+    pub fn toggle_shift_caps(&self) {
+        let currently_enabled = hook::is_shift_capslock_enabled();
+        let new_state = !currently_enabled;
+        hook::set_shift_capslock_enabled(new_state);
+        self.shift_caps_item.set_checked(new_state);
     }
 }
 
@@ -176,6 +200,11 @@ pub fn handle_menu_event(event: MenuEvent, tray: &mut TrayManager) -> bool {
 
     if *id == MenuId::new(MENU_STARTUP_ID) {
         tray.toggle_startup();
+        return false;
+    }
+
+    if *id == MenuId::new(MENU_SHIFT_CAPS_ID) {
+        tray.toggle_shift_caps();
         return false;
     }
 

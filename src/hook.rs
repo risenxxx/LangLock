@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::VK_CAPITAL;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CAPITAL, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetForegroundWindow, PostMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
     HC_ACTION, HHOOK, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN,
@@ -23,6 +23,19 @@ static HOOK_HANDLE: AtomicIsize = AtomicIsize::new(0);
 
 /// Flag to track if we're currently suppressing a Caps Lock press.
 static CAPS_LOCK_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// Flag to enable Shift+Caps Lock for regular Caps Lock behavior.
+static SHIFT_CAPSLOCK_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Checks if the Shift+Caps Lock feature is enabled.
+pub fn is_shift_capslock_enabled() -> bool {
+    SHIFT_CAPSLOCK_ENABLED.load(Ordering::SeqCst)
+}
+
+/// Enables or disables the Shift+Caps Lock feature.
+pub fn set_shift_capslock_enabled(enabled: bool) {
+    SHIFT_CAPSLOCK_ENABLED.store(enabled, Ordering::SeqCst);
+}
 
 /// Installs the low-level keyboard hook.
 ///
@@ -85,6 +98,14 @@ unsafe extern "system" fn keyboard_proc(
             // Ignore injected keystrokes (from other software)
             if (flags.0 & LLKHF_INJECTED) != 0 {
                 return CallNextHookEx(None, n_code, w_param, l_param);
+            }
+
+            // If Shift+Caps Lock feature is enabled and Shift is held, pass through
+            if SHIFT_CAPSLOCK_ENABLED.load(Ordering::SeqCst) {
+                let shift_state = GetAsyncKeyState(VK_SHIFT.0 as i32);
+                if (shift_state as u16 & 0x8000) != 0 {
+                    return CallNextHookEx(None, n_code, w_param, l_param);
+                }
             }
 
             let msg = w_param.0 as u32;

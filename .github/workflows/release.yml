@@ -56,20 +56,14 @@ jobs:
       - name: Build Release
         run: cargo build --release
 
-      - name: Build Inno Setup Installer
-        run: |
-          # Download and install Inno Setup
-          $innoUrl = "https://jrsoftware.org/download.php/is.exe"
-          $innoInstaller = "$env:TEMP\innosetup.exe"
-          Invoke-WebRequest -Uri $innoUrl -OutFile $innoInstaller
-          Start-Process -FilePath $innoInstaller -Args "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" -Wait
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
 
-          # Build installer
-          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          & $iscc /DMyAppVersion="${{ needs.check-version.outputs.version }}" installer\langlock.iss
+      - name: Build Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion="${{ needs.check-version.outputs.version }}" installer\langlock.iss
 
       - name: Prepare release files
-        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-files
           Copy-Item target/release/langlock.exe release-files/

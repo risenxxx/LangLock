@@ -4,18 +4,31 @@ A lightweight, native Windows background utility that intercepts the Caps Lock k
 
 ## Why LangLock?
 
-Traditional keyboard remapping solutions that emulate virtual keystrokes can suffer from the **"modifier leak" problem** — ghost key presses during fast typing and inconsistent behavior with modifier keys (Ctrl, Alt, Shift).
+Traditional keyboard remapping solutions that emulate virtual keystrokes (via `SendInput`) can be problematic:
+- **Anti-cheat detection** — many games detect and block keystroke emulation
+- **Modifier key conflicts** — ghost key presses and inconsistent behavior during fast typing
 
-**AutoHotkey** solves the modifier leak issue but has a different problem: it gets **detected and blocked by anti-cheat systems** in competitive games.
+LangLock takes a different approach: it sends `WM_INPUTLANGCHANGEREQUEST` directly to the window instead of emulating keystrokes. This is the same mechanism Windows uses internally when you press `Alt+Shift`.
 
-LangLock solves both problems:
+### Anti-Cheat Considerations
 
-| Feature | Virtual Keystroke Tools | AutoHotkey | LangLock |
-|---------|------------------------|------------|----------|
-| Modifier leak | Yes | No | No |
-| Anti-cheat safe | Varies | No | Yes |
-| Mechanism | Emulates keystrokes | Emulates keystrokes | Direct `WM_INPUTLANGCHANGEREQUEST` |
-| Dependencies | Varies | AHK runtime | None (native) |
+LangLock uses a low-level keyboard hook (`WH_KEYBOARD_LL`) — a standard Windows API also used by many legitimate programs (input methods, screenshot tools, accessibility software). While hooks are generally safe, some aggressive anti-cheat systems may flag any software using them. LangLock minimizes risk by:
+- **Not emulating keystrokes** — no `SendInput` calls
+- **Ignoring injected events** — filters out `LLKHF_INJECTED` flag
+- **Using standard Windows APIs** — only `PostMessageW` with documented messages
+
+## Comparison with Alternatives
+
+| Feature | LangLock | [capslang](https://github.com/edanko/capslang) | [CapsWitch](https://github.com/Linkerin/capswitch) |
+|---------|----------|----------|-----------|
+| Switch method | `WM_INPUTLANGCHANGEREQUEST` | `WM_INPUTLANGCHANGEREQUEST` | `SendInput` (Win+Space) |
+| Keystroke emulation | No | No | **Yes** |
+| Shift+Caps Lock = Caps | ✓ (optional) | ✓ | ✓ (via SendInput) |
+| Tray icon | ✓ | ✗ | ✓ |
+| Works with admin apps | ✓ | ✓ | ✗ |
+| Filter injected keys | ✓ | ✗ | ✗ |
+| Installer | Inno Setup | PowerShell script | MSIX (self-signed) |
+| License | MIT | GPLv3 | MIT |
 
 ## How It Works
 
@@ -30,6 +43,7 @@ This approach is invisible to games and anti-cheat systems because it never simu
 
 - **System tray icon** with context menu
 - **Run on startup** option (uses Task Scheduler for elevated privileges)
+- **Shift+Caps Lock** for regular Caps Lock behavior (optional, toggle in tray menu)
 - **Hide tray icon** to minimize clutter (relaunch to restore)
 - **Single instance** enforcement with IPC
 - **Zero dependencies** — single portable executable
@@ -69,6 +83,7 @@ Download `langlock.exe` from [Releases](https://github.com/risenxxx/langlock/rel
 2. Press **Caps Lock** to switch input language
 3. Right-click the tray icon for options:
    - **Run on startup** — Enables auto-start on login
+   - **Shift+Caps Lock = regular Caps Lock** — When enabled, pressing Shift+Caps Lock toggles Caps Lock as usual
    - **Hide tray icon** — Hides the tray icon (relaunch to restore)
    - **Exit** — Closes LangLock
 
@@ -116,6 +131,9 @@ WH_KEYBOARD_LL hook
        ↓
 Check: VK_CAPITAL && not injected?
        ↓ Yes
+Check: Shift held && feature enabled?
+       ↓ Yes → Pass through (normal Caps Lock)
+       ↓ No
 PostMessage(hwnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD, 0)
        ↓
 Return 1 (swallow keypress)
