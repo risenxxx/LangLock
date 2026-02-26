@@ -66,8 +66,10 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Run]
 ; Create scheduled task for startup (runs with admin since installer is elevated)
 Filename: "schtasks"; Parameters: "/create /tn ""LangLock"" /tr """"""{app}\{#MyAppExeName}"""""" /sc onlogon /rl highest /f"; Flags: runhidden; Tasks: startup
-; Launch after installation (user can uncheck)
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; Launch via scheduled task if startup was selected (elevated privileges)
+Filename: "schtasks"; Parameters: "/run /tn ""LangLock"""; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: runhidden postinstall skipifsilent nowait; Tasks: startup
+; Launch directly if startup was not selected (no elevation)
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent; Check: not WizardIsTaskSelected('startup')
 
 [UninstallRun]
 ; Remove scheduled task on uninstall
