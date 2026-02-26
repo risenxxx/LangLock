@@ -81,17 +81,27 @@ impl TrayManager {
         })
     }
 
-    /// Hides the tray icon.
+    /// Hides the tray icon and saves the state.
     pub fn hide(&mut self) {
         if let Some(tray) = self.tray_icon.take() {
             drop(tray);
+            config::save_tray_hidden(true);
             show_hidden_notification();
         }
     }
 
-    /// Shows/restores the tray icon.
+    /// Hides the tray icon silently (no notification, used on startup).
+    pub fn hide_silently(&mut self) {
+        if let Some(tray) = self.tray_icon.take() {
+            drop(tray);
+        }
+    }
+
+    /// Shows/restores the tray icon and saves the state.
     pub fn show(&mut self) -> Result<(), String> {
         if self.tray_icon.is_none() {
+            // Save that tray is now visible
+            config::save_tray_hidden(false);
             // Update startup state before showing
             let startup_enabled = startup::is_startup_enabled();
             self.startup_item.set_checked(startup_enabled);

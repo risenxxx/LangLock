@@ -55,6 +55,11 @@ fn main() {
         }
     };
 
+    // Hide tray if it was hidden in previous session
+    if config::load_tray_hidden() {
+        tray_manager.hide_silently();
+    }
+
     // Main message loop
     run_message_loop(&mut tray_manager, show_event.as_ref());
 

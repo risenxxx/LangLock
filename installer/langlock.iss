@@ -129,7 +129,7 @@ begin
   if CurUninstallStep = usPostUninstall then
   begin
     PortableFile := ExpandConstant('{app}\.portable');
-    SettingsFile := ExpandConstant('{app}\settings.ini');
+    SettingsFile := ExpandConstant('{app}\langlock.settings.ini');
     // Delete portable mode files if they exist
     DeleteFile(PortableFile);
     DeleteFile(SettingsFile);

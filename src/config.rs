@@ -11,13 +11,14 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Settings file name.
-const SETTINGS_FILE: &str = "settings.ini";
+const SETTINGS_FILE: &str = "langlock.settings.ini";
 
 /// Portable mode marker file name.
 const PORTABLE_MARKER: &str = ".portable";
 
 /// Configuration keys.
 const KEY_SHIFT_CAPS_ENABLED: &str = "shift_caps_lock_enabled";
+const KEY_TRAY_HIDDEN: &str = "tray_hidden";
 
 /// Gets the executable directory.
 fn get_exe_dir() -> Option<PathBuf> {
@@ -122,5 +123,22 @@ pub fn load_shift_caps_enabled() -> bool {
 pub fn save_shift_caps_enabled(enabled: bool) {
     let mut settings = load_settings();
     settings.insert(KEY_SHIFT_CAPS_ENABLED.to_string(), enabled.to_string());
+    save_settings(&settings);
+}
+
+/// Loads the tray hidden setting from config file.
+/// Returns `false` (visible) by default if not set.
+pub fn load_tray_hidden() -> bool {
+    let settings = load_settings();
+    settings
+        .get(KEY_TRAY_HIDDEN)
+        .map(|v| parse_bool(v))
+        .unwrap_or(false) // Default: visible
+}
+
+/// Saves the tray hidden setting to config file.
+pub fn save_tray_hidden(hidden: bool) {
+    let mut settings = load_settings();
+    settings.insert(KEY_TRAY_HIDDEN.to_string(), hidden.to_string());
     save_settings(&settings);
 }
