@@ -1,5 +1,6 @@
 //! System tray icon and menu management.
 
+use crate::config;
 use crate::hook;
 use crate::notification::show_hidden_notification;
 use crate::startup;
@@ -143,6 +144,7 @@ impl TrayManager {
         let currently_enabled = hook::is_shift_capslock_enabled();
         let new_state = !currently_enabled;
         hook::set_shift_capslock_enabled(new_state);
+        config::save_shift_caps_enabled(new_state);
         self.shift_caps_item.set_checked(new_state);
     }
 }

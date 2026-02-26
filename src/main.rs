@@ -6,6 +6,7 @@
 
 #![windows_subsystem = "windows"]
 
+mod config;
 mod hook;
 mod ipc;
 mod notification;
@@ -39,6 +40,10 @@ fn main() {
         eprintln!("Failed to install keyboard hook: {}", e);
         return;
     }
+
+    // Load saved settings
+    let shift_caps_enabled = config::load_shift_caps_enabled();
+    hook::set_shift_capslock_enabled(shift_caps_enabled);
 
     // Create the system tray
     let mut tray_manager = match TrayManager::new() {

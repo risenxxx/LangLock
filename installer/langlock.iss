@@ -48,12 +48,17 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 [CustomMessages]
 english.RunAtStartup=Run at Windows startup
 english.StartupGroup=Startup:
+english.PortableMode=Portable mode (store settings in installation folder)
+english.SettingsGroup=Settings:
 russian.RunAtStartup=Запускать при входе в Windows
 russian.StartupGroup=Автозапуск:
+russian.PortableMode=Портативный режим (хранить настройки в папке установки)
+russian.SettingsGroup=Настройки:
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "startup"; Description: "{cm:RunAtStartup}"; GroupDescription: "{cm:StartupGroup}"; Flags: unchecked
+Name: "portable"; Description: "{cm:PortableMode}"; GroupDescription: "{cm:SettingsGroup}"; Flags: unchecked
 
 [Files]
 Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -93,4 +98,40 @@ begin
   Result := True;
   // Close running instance before uninstall
   Exec('taskkill', '/f /im langlock.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// Create or delete .portable marker file based on task selection
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  PortableFile: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    PortableFile := ExpandConstant('{app}\.portable');
+    if WizardIsTaskSelected('portable') then
+    begin
+      // Create empty .portable marker file
+      SaveStringToFile(PortableFile, '', False);
+    end
+    else
+    begin
+      // Remove .portable file if it exists (in case of upgrade from portable)
+      DeleteFile(PortableFile);
+    end;
+  end;
+end;
+
+// Clean up portable settings on uninstall
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  PortableFile, SettingsFile: String;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    PortableFile := ExpandConstant('{app}\.portable');
+    SettingsFile := ExpandConstant('{app}\settings.ini');
+    // Delete portable mode files if they exist
+    DeleteFile(PortableFile);
+    DeleteFile(SettingsFile);
+  end;
 end;
