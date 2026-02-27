@@ -37,7 +37,7 @@ LangLock uses a low-level keyboard hook (`WH_KEYBOARD_LL`) — a standard Window
 3. **Sends `WM_INPUTLANGCHANGEREQUEST`** directly to the foreground window
 4. No virtual keystrokes are ever generated
 
-This approach is invisible to games and anti-cheat systems because it never simulates keyboard input.
+This approach minimizes anti-cheat risk because it never simulates keyboard input — see [Anti-Cheat Considerations](#anti-cheat-considerations) for details.
 
 ## Features
 
@@ -68,8 +68,9 @@ Download the latest `langlock-setup-*.exe` from [Releases](https://github.com/ri
 
 The installer:
 - Requires administrator privileges
-- Installs to `C:\Program Files\LangLock`
+- Allows choosing installation folder (default: `C:\Program Files\LangLock`)
 - Optionally adds to Windows startup
+- Optionally enables portable mode (settings stored in installation folder)
 - Creates Start Menu shortcuts
 - Removes the scheduled task on uninstall
 
