@@ -2,10 +2,10 @@
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-use windows::Win32::System::Threading::GetCurrentThreadId;
+use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    AttachThreadInput, GetAsyncKeyState, GetFocus, GetKeyboardLayout, GetKeyboardLayoutList, HKL,
-    VK_CAPITAL, VK_SHIFT,
+    GetAsyncKeyState, GetFocus, GetKeyboardLayout, GetKeyboardLayoutList, HKL, VK_CAPITAL,
+    VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetForegroundWindow, GetWindowThreadProcessId, PostMessageW,
