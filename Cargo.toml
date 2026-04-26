@@ -1,6 +1,6 @@
 [package]
 name = "langlock"
-version = "1.1.4"
+version = "1.1.5"
 edition = "2021"
 authors = ["LangLock Contributors"]
 description = "A lightweight Windows utility that intercepts Caps Lock to switch input language without keystroke emulation"
