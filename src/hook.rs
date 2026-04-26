@@ -2,11 +2,14 @@
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CAPITAL, VK_SHIFT};
+use windows::Win32::System::Threading::GetCurrentThreadId;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, GetKeyboardLayout, GetKeyboardLayoutList, HKL, VK_CAPITAL, VK_SHIFT,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetForegroundWindow, PostMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
-    HC_ACTION, HHOOK, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN,
-    WM_SYSKEYUP,
+    AttachThreadInput, CallNextHookEx, GetFocus, GetForegroundWindow, GetWindowThreadProcessId,
+    PostMessageW, SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT,
+    WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 /// WM_INPUTLANGCHANGEREQUEST message constant.
@@ -61,20 +64,56 @@ pub fn uninstall_hook() {
     }
 }
 
-/// Switches the input language of the foreground window.
+/// Switches the input language of the focused window across thread boundaries.
+///
+/// File dialogs and many shell-hosted UIs put the focused edit control on a
+/// different thread than the foreground frame, so posting to the foreground
+/// HWND misses the actual input queue. We resolve the truly focused HWND via
+/// AttachThreadInput + GetFocus, compute the next HKL explicitly for that
+/// thread, and post the request directly to the focused window.
 fn switch_language() {
     unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd != HWND::default() {
-            // Post WM_INPUTLANGCHANGEREQUEST with INPUTLANGCHANGE_FORWARD to cycle to next language
-            let _ = PostMessageW(
-                hwnd,
-                WM_INPUTLANGCHANGEREQUEST,
-                WPARAM(INPUTLANGCHANGE_FORWARD),
-                LPARAM(0),
-            );
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() {
+            return;
         }
+
+        let fg_tid = GetWindowThreadProcessId(fg, None);
+        let our_tid = GetCurrentThreadId();
+        let need_attach = fg_tid != 0 && fg_tid != our_tid;
+
+        if need_attach {
+            let _ = AttachThreadInput(our_tid, fg_tid, true);
+        }
+        let focused = GetFocus();
+        if need_attach {
+            let _ = AttachThreadInput(our_tid, fg_tid, false);
+        }
+
+        let target_hwnd = if focused.0.is_null() { fg } else { focused };
+        let target_tid = GetWindowThreadProcessId(target_hwnd, None);
+
+        let (wparam, lparam) = match next_hkl(GetKeyboardLayout(target_tid)) {
+            Some(next) => (WPARAM(0), LPARAM(next.0 as isize)),
+            None => (WPARAM(INPUTLANGCHANGE_FORWARD), LPARAM(0)),
+        };
+
+        let _ = PostMessageW(target_hwnd, WM_INPUTLANGCHANGEREQUEST, wparam, lparam);
     }
+}
+
+unsafe fn next_hkl(current: HKL) -> Option<HKL> {
+    let n = GetKeyboardLayoutList(None) as usize;
+    if n < 2 {
+        return None;
+    }
+    let mut buf = vec![HKL::default(); n];
+    let got = GetKeyboardLayoutList(Some(&mut buf)) as usize;
+    if got == 0 {
+        return None;
+    }
+    let idx = buf.iter().position(|h| h.0 == current.0).unwrap_or(0);
+    Some(buf[(idx + 1) % got])
 }
 
 /// Low-level keyboard hook callback procedure.
