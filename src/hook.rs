@@ -1,15 +1,16 @@
 //! Low-level keyboard hook for intercepting Caps Lock and switching input language.
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyboardLayout, GetKeyboardLayoutList, HKL, VK_CAPITAL, VK_SHIFT,
+    AttachThreadInput, GetAsyncKeyState, GetFocus, GetKeyboardLayout, GetKeyboardLayoutList, HKL,
+    VK_CAPITAL, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AttachThreadInput, CallNextHookEx, GetFocus, GetForegroundWindow, GetWindowThreadProcessId,
-    PostMessageW, SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT,
-    WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, GetForegroundWindow, GetWindowThreadProcessId, PostMessageW,
+    SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL,
+    WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 /// WM_INPUTLANGCHANGEREQUEST message constant.
