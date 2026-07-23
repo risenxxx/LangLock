@@ -45,10 +45,10 @@ fn main() {
     let shift_caps_enabled = config::load_shift_caps_enabled();
     hook::set_shift_capslock_enabled(shift_caps_enabled);
 
-    // Create the tray manager. The icon itself is created lazily in the message
-    // loop via `ensure_visible()`, so a launch at logon before the shell taskbar
-    // exists does not abort startup — the keyboard hook is already running and the
-    // icon appears as soon as the taskbar is ready.
+    // Create the tray manager. The icon is created once here and kept for the
+    // whole run. Launching at logon, before the shell taskbar exists, is fine:
+    // the icon registers itself as soon as the taskbar is ready and startup is
+    // never aborted, so the keyboard hook keeps working either way.
     let mut tray_manager = TrayManager::new();
 
     // Hide tray if it was hidden in previous session
@@ -72,11 +72,6 @@ fn run_message_loop(tray: &mut TrayManager, show_event: Option<&ipc::SafeHandle>
         if is_exit_requested() {
             break;
         }
-
-        // Make sure the tray icon exists once the shell is ready (handles launching
-        // at logon before the taskbar has been created). No-op when already visible
-        // or hidden by the user.
-        tray.ensure_visible();
 
         // Process Windows messages (non-blocking)
         unsafe {

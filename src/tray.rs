@@ -6,13 +6,7 @@ use crate::notification::show_hidden_notification;
 use crate::startup;
 use muda::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
-use windows::core::{w, PCWSTR};
-use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
-
-/// Minimum interval between tray-icon (re)creation attempts.
-const RETRY_INTERVAL: Duration = Duration::from_millis(1000);
 
 /// Menu item IDs.
 const MENU_STARTUP_ID: &str = "startup";
@@ -24,27 +18,32 @@ const MENU_EXIT_ID: &str = "exit";
 static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 /// Manages the system tray icon and its context menu.
+///
+/// Exactly one [`TrayIcon`] is created per process and kept alive for the whole
+/// run; hiding and showing only toggle its visibility. It is never rebuilt.
+///
+/// Rebuilding is what produced duplicate icons: when LangLock starts at logon it
+/// races `explorer.exe`, and `Shell_NotifyIcon(NIM_ADD)` can report failure even
+/// though the shell went on to register the icon. A retry then added a second
+/// one. `tray-icon` now keeps its hidden window on such a failure and re-registers
+/// on the shell's `TaskbarCreated` broadcast, so the single icon shows up on its
+/// own once the taskbar is ready — no retry needed on our side.
 pub struct TrayManager {
+    /// `None` only if the hidden helper window could not be created at all, which
+    /// leaves LangLock running headless rather than aborting the keyboard hook.
     tray_icon: Option<TrayIcon>,
     startup_item: CheckMenuItem,
     shift_caps_item: CheckMenuItem,
-    hide_item: MenuItem,
-    exit_item: MenuItem,
-    /// `true` when the user explicitly hid the icon; suppresses auto-recreation.
-    user_hidden: bool,
-    /// Time of the last (re)creation attempt, used to throttle retries.
-    last_attempt: Option<Instant>,
+    /// Mirrors the icon's visibility so repeated calls don't hit the shell.
+    visible: bool,
 }
 
 impl TrayManager {
-    /// Creates a new TrayManager with its menu items.
+    /// Creates the tray icon and its context menu.
     ///
-    /// The tray icon itself is created lazily by [`Self::ensure_visible`] once the
-    /// Windows shell is ready. This keeps an early launch at logon — before
-    /// `explorer.exe` has created the taskbar — from failing: the keyboard hook
-    /// runs immediately and the icon appears as soon as the taskbar exists.
+    /// Never fails the caller: if the icon cannot be created, the error is logged
+    /// and LangLock keeps running with the keyboard hook only.
     pub fn new() -> Self {
-        // Create menu items (these don't touch the shell and can't fail on timing)
         let startup_item = CheckMenuItem::with_id(
             MENU_STARTUP_ID,
             "Run on startup",
@@ -62,107 +61,57 @@ impl TrayManager {
         let hide_item = MenuItem::with_id(MENU_HIDE_ID, "Hide tray icon", true, None);
         let exit_item = MenuItem::with_id(MENU_EXIT_ID, "Exit", true, None);
 
+        let tray_icon = match build_icon(&startup_item, &shift_caps_item, &hide_item, &exit_item) {
+            Ok(icon) => Some(icon),
+            Err(e) => {
+                eprintln!("Failed to create tray icon: {}", e);
+                None
+            }
+        };
+
         Self {
-            tray_icon: None,
+            tray_icon,
             startup_item,
             shift_caps_item,
-            hide_item,
-            exit_item,
-            user_hidden: false,
-            last_attempt: None,
-        }
-    }
-
-    /// Builds the tray icon and its context menu from the stored menu items.
-    ///
-    /// Returns an error if the shell rejects the icon (e.g. the taskbar is not
-    /// ready yet); callers retry via [`Self::ensure_visible`].
-    fn build_icon(&mut self) -> Result<(), String> {
-        // Sync checkbox state with the current settings before (re)showing.
-        self.startup_item.set_checked(startup::is_startup_enabled());
-        self.shift_caps_item.set_checked(hook::is_shift_capslock_enabled());
-
-        // Build the menu with the existing items.
-        let menu = Menu::new();
-        menu.append(&self.startup_item)
-            .map_err(|e| format!("Failed to add startup item: {}", e))?;
-        menu.append(&self.shift_caps_item)
-            .map_err(|e| format!("Failed to add shift caps item: {}", e))?;
-        menu.append(&self.hide_item)
-            .map_err(|e| format!("Failed to add hide item: {}", e))?;
-        menu.append(&PredefinedMenuItem::separator())
-            .map_err(|e| format!("Failed to add separator: {}", e))?;
-        menu.append(&self.exit_item)
-            .map_err(|e| format!("Failed to add exit item: {}", e))?;
-
-        let icon = create_icon()?;
-        let tray_icon = TrayIconBuilder::new()
-            .with_tooltip("LangLock - Caps Lock Language Switcher")
-            .with_icon(icon)
-            .with_menu(Box::new(menu))
-            .build()
-            .map_err(|e| format!("Failed to create tray icon: {}", e))?;
-
-        self.tray_icon = Some(tray_icon);
-        Ok(())
-    }
-
-    /// Ensures the tray icon is present (unless the user hid it). Safe to call on
-    /// every message-loop iteration: it acts only when the icon is missing and the
-    /// shell taskbar already exists, and throttles retries.
-    ///
-    /// Checking for `Shell_TrayWnd` before attempting matters: `tray-icon` leaks a
-    /// hidden window whenever `Shell_NotifyIcon(NIM_ADD)` fails, so we avoid calling
-    /// it until the shell can actually accept the icon.
-    pub fn ensure_visible(&mut self) {
-        if self.user_hidden || self.tray_icon.is_some() {
-            return;
-        }
-
-        if let Some(last) = self.last_attempt {
-            if last.elapsed() < RETRY_INTERVAL {
-                return;
-            }
-        }
-
-        if !taskbar_ready() {
-            return;
-        }
-
-        self.last_attempt = Some(Instant::now());
-        if let Err(e) = self.build_icon() {
-            eprintln!("Tray icon not ready yet, will retry: {}", e);
+            visible: true,
         }
     }
 
     /// Hides the tray icon and saves the state.
     pub fn hide(&mut self) {
-        self.user_hidden = true;
-        if let Some(tray) = self.tray_icon.take() {
-            drop(tray);
-        }
+        let _ = self.set_visible(false);
         config::save_tray_hidden(true);
         show_hidden_notification();
     }
 
     /// Hides the tray icon silently (no notification, used on startup).
     pub fn hide_silently(&mut self) {
-        self.user_hidden = true;
-        if let Some(tray) = self.tray_icon.take() {
-            drop(tray);
-        }
+        let _ = self.set_visible(false);
     }
 
     /// Shows/restores the tray icon and saves the state.
     pub fn show(&mut self) -> Result<(), String> {
-        self.user_hidden = false;
-        if self.tray_icon.is_none() {
-            config::save_tray_hidden(false);
-            // Allow an immediate (re)creation attempt rather than waiting out the
-            // retry throttle.
-            self.last_attempt = None;
-            self.build_icon()?;
+        // Sync checkboxes with the current settings before the menu is seen again.
+        self.startup_item.set_checked(startup::is_startup_enabled());
+        self.shift_caps_item
+            .set_checked(hook::is_shift_capslock_enabled());
+
+        config::save_tray_hidden(false);
+        self.set_visible(true)
+    }
+
+    /// Applies the requested visibility to the existing icon.
+    fn set_visible(&mut self, visible: bool) -> Result<(), String> {
+        if self.visible == visible {
+            return Ok(());
         }
+
+        if let Some(tray) = &self.tray_icon {
+            tray.set_visible(visible)
+                .map_err(|e| format!("Failed to change tray icon visibility: {}", e))?;
+        }
+
+        self.visible = visible;
         Ok(())
     }
 
@@ -191,11 +140,32 @@ impl TrayManager {
     }
 }
 
-/// Returns `true` when the shell taskbar (`Shell_TrayWnd`) exists, i.e. the system
-/// tray is ready to accept icons. Used to avoid attempting registration during the
-/// logon race before `explorer.exe` has created the taskbar.
-fn taskbar_ready() -> bool {
-    unsafe { FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null()).is_ok() }
+/// Builds the tray icon and attaches the context menu assembled from the items.
+fn build_icon(
+    startup_item: &CheckMenuItem,
+    shift_caps_item: &CheckMenuItem,
+    hide_item: &MenuItem,
+    exit_item: &MenuItem,
+) -> Result<TrayIcon, String> {
+    let menu = Menu::new();
+    menu.append(startup_item)
+        .map_err(|e| format!("Failed to add startup item: {}", e))?;
+    menu.append(shift_caps_item)
+        .map_err(|e| format!("Failed to add shift caps item: {}", e))?;
+    menu.append(hide_item)
+        .map_err(|e| format!("Failed to add hide item: {}", e))?;
+    menu.append(&PredefinedMenuItem::separator())
+        .map_err(|e| format!("Failed to add separator: {}", e))?;
+    menu.append(exit_item)
+        .map_err(|e| format!("Failed to add exit item: {}", e))?;
+
+    let icon = create_icon()?;
+    TrayIconBuilder::new()
+        .with_tooltip("LangLock - Caps Lock Language Switcher")
+        .with_icon(icon)
+        .with_menu(Box::new(menu))
+        .build()
+        .map_err(|e| format!("Failed to create tray icon: {}", e))
 }
 
 /// Creates the tray icon from embedded RGBA data.
